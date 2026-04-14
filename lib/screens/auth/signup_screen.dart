@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/constants/app_constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/primary_button.dart';
-import '../../widgets/skill_chip.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -18,7 +16,6 @@ class _SignupScreenState extends State<SignupScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscure = true;
-  final Set<String> _selectedSkills = {};
 
   @override
   void dispose() {
@@ -142,34 +139,20 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    _label('Select your skills'),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: AppConstants.allSkills
-                          .take(12)
-                          .map((s) => SkillChip(
-                                label: s,
-                                isSelected: _selectedSkills.contains(s),
-                                onTap: () {
-                                  setState(() {
-                                    if (_selectedSkills.contains(s)) {
-                                      _selectedSkills.remove(s);
-                                    } else {
-                                      _selectedSkills.add(s);
-                                    }
-                                  });
-                                },
-                              ))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 28),
                     PrimaryButton(
                       text: 'Create Account',
                       icon: Icons.arrow_forward_rounded,
                       isLoading: auth.isLoading,
                       onPressed: _signup,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'You can add your skills after signing up in your profile.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textMuted,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),

@@ -357,6 +357,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 isOutlined: true,
                 onPressed: _showEditProfileDialog,
               ),
+              const SizedBox(height: 16),
+              // Logout button
+              PrimaryButton(
+                text: 'Logout',
+                icon: Icons.logout_rounded,
+                isOutlined: true,
+                onPressed: () {
+                  context.read<AuthProvider>().signOut();
+                  Navigator.pushReplacementNamed(context, '/login');
+                },
+              ),
               const SizedBox(height: 100),
             ],
           ),

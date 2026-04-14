@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../models/message_model.dart';
 import '../services/chat_service.dart';
 
 class ChatProvider extends ChangeNotifier {
   final ChatService _chatService = ChatService();
+  StreamSubscription<List<MessageModel>>? _messagesSubscription;
 
   List<MessageModel> _messages = [];
   List<ChatPreview> _previews = [];
@@ -12,6 +14,12 @@ class ChatProvider extends ChangeNotifier {
   List<MessageModel> get messages => _messages;
   List<ChatPreview> get previews => _previews;
   bool get isLoading => _isLoading;
+
+  @override
+  void dispose() {
+    _messagesSubscription?.cancel();
+    super.dispose();
+  }
 
   /// Load chat previews for inbox.
   Future<void> loadPreviews(String userId) async {
@@ -23,15 +31,46 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load messages for a specific session/chat.
-  Future<void> loadMessages(String sessionId) async {
+  /// Listen to real-time messages between two users.
+  void listenToConversation(String userId1, String userId2) {
+    // Cancel previous subscription
+    _messagesSubscription?.cancel();
+    
     _isLoading = true;
     notifyListeners();
 
-    _messages = await _chatService.getMessages(sessionId);
+    _messagesSubscription = _chatService.getConversationStream(userId1, userId2).listen(
+      (messages) {
+        _messages = messages;
+        _isLoading = false;
+        notifyListeners();
+      },
+      onError: (error, stackTrace) {
+        _isLoading = false;
+        notifyListeners();
+      },
+    );
+
+    // Safety timeout - if no messages after 5 seconds, stop loading
+    Future.delayed(const Duration(seconds: 5), () {
+      if (_isLoading) {
+        _isLoading = false;
+        notifyListeners();
+      }
+    });
+  }
+
+  /// Load messages between two users (one-time fetch).
+  Future<void> loadConversation(String userId1, String userId2) async {
+    _isLoading = true;
+    notifyListeners();
+
+    _messages = await _chatService.getConversation(userId1, userId2);
     _isLoading = false;
     notifyListeners();
   }
+
+
 
   /// Send a text message.
   Future<void> sendMessage({
@@ -39,6 +78,7 @@ class ChatProvider extends ChangeNotifier {
     required String senderName,
     required String receiverId,
     required String content,
+    required String sessionId,
   }) async {
     final message = MessageModel(
       id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
@@ -48,14 +88,21 @@ class ChatProvider extends ChangeNotifier {
       content: content,
       type: MessageType.text,
       timestamp: DateTime.now(),
+      sessionId: sessionId,
     );
 
     // Optimistic add
     _messages.add(message);
     notifyListeners();
 
-    // Persist (Firebase in production)
-    await _chatService.sendMessage(message);
+    try {
+      // Persist to Firebase
+      await _chatService.sendMessage(message);
+    } catch (e) {
+      // Remove the message if it failed to send
+      _messages.remove(message);
+      notifyListeners();
+    }
   }
 
   /// Send an attachment message.
@@ -65,6 +112,7 @@ class ChatProvider extends ChangeNotifier {
     required String receiverId,
     required MessageType type,
     required String attachmentUrl,
+    required String sessionId,
     String content = '',
   }) async {
     final message = await _chatService.sendAttachment(
@@ -73,6 +121,7 @@ class ChatProvider extends ChangeNotifier {
       receiverId: receiverId,
       type: type,
       attachmentUrl: attachmentUrl,
+      sessionId: sessionId,
       content: content,
     );
 

@@ -1,74 +1,82 @@
-/// Web3 service — placeholder for MetaMask/WalletConnect integration.
-/// Replace with: web3dart + walletconnect_dart packages.
+import 'package:flutter/foundation.dart';
+
+import 'blockchain_service.dart';
+import 'metadata_service.dart';
+import 'wallet_service.dart';
+
 class Web3Service {
-  String? _connectedAddress;
+  final WalletService _walletService = WalletService();
+  late final BlockchainService _blockchainService;
+  final MetadataService _metadataService = MetadataService();
 
-  bool get isConnected => _connectedAddress != null;
-  String? get connectedAddress => _connectedAddress;
+  Web3Service() {
+    _blockchainService = BlockchainService(_walletService);
+  }
 
-  /// Connect MetaMask wallet.
-  /// Replace with: WalletConnect deep link or injected provider.
-  ///
-  /// Production flow:
-  /// 1. Create WalletConnect session
-  /// 2. Deep link to MetaMask
-  /// 3. User approves connection
-  /// 4. Store session + address
+  bool get isConnected => _walletService.getWalletAddress() != null;
+  String? get connectedAddress => _walletService.getWalletAddress();
+
   Future<String> connectWallet() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    // Mock: return a sample Ethereum address
-    _connectedAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD68';
-    return _connectedAddress!;
+    await _walletService.initialize();
+    return _walletService.connectWallet();
   }
 
   /// Disconnect wallet.
   Future<void> disconnectWallet() async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    _connectedAddress = null;
+    await _walletService.disconnectWallet();
   }
 
-  /// Get ETH balance of connected wallet.
-  /// Replace with: web3dart EthereumAddress + client.getBalance()
   Future<double> getBalance() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (_connectedAddress == null) throw Exception('Wallet not connected');
-    return 0.42; // Mock balance in ETH
+    final address = _walletService.getWalletAddress();
+    if (address == null) throw Exception('Wallet not connected');
+
+    try {
+      return await _blockchainService.getBalanceEth(address);
+    } catch (_) {
+      return 0.0;
+    }
   }
 
-  /// Mint a new skill NFT.
-  /// Replace with: Smart contract call via web3dart
-  ///
-  /// Production flow:
-  /// 1. Upload metadata to IPFS (Pinata/Infura)
-  /// 2. Call smart contract mint() function
-  /// 3. Wait for transaction confirmation
-  /// 4. Store tokenId and metadataUrl in Firestore
   Future<String> mintNFT({
     required String metadataUrl,
     required String recipientAddress,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (_connectedAddress == null) throw Exception('Wallet not connected');
-    // Mock: return a transaction hash
-    return '0x${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
+    if (!isConnected) throw Exception('Wallet not connected');
+    return _blockchainService.mintNFT(metadataUrl);
   }
 
-  /// Transfer NFT ownership.
-  /// Replace with: Smart contract safeTransferFrom() call
+  Future<String> mintNFTFromImageCid({
+    required String imageCID,
+    required String rarity,
+  }) async {
+    if (!isConnected) throw Exception('Wallet not connected');
+
+    final metadata = _metadataService.createMetadataObject(
+      imageCID: imageCID,
+      rarity: rarity,
+    );
+    final tokenUri = await _metadataService.generateMetadataCID(metadata);
+    final txHash = await _blockchainService.mintNFT(tokenUri);
+    if (kDebugMode) {
+      debugPrint('Minted with tokenUri=$tokenUri tx=$txHash');
+    }
+    return txHash;
+  }
+
   Future<String> transferNFT({
     required String tokenId,
     required String fromAddress,
     required String toAddress,
   }) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (_connectedAddress == null) throw Exception('Wallet not connected');
-    return '0x${DateTime.now().millisecondsSinceEpoch.toRadixString(16)}';
+    if (!isConnected) throw Exception('Wallet not connected');
+    return _blockchainService.transferNFT(
+      tokenId: tokenId,
+      fromAddress: fromAddress,
+      toAddress: toAddress,
+    );
   }
 
-  /// Get NFTs owned by an address from the smart contract.
-  /// Replace with: Smart contract balanceOf() + tokenOfOwnerByIndex()
   Future<List<String>> getOwnedTokenIds(String address) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return ['nft_001', 'nft_002']; // Mock owned token IDs
+    return _blockchainService.getOwnedTokenIds(address);
   }
 }

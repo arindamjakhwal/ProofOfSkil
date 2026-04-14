@@ -1,82 +1,294 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/message_model.dart';
 
-/// Chat service — replace with Firestore collection 'messages'.
+/// Chat service — uses Firestore for real-time messaging.
 class ChatService {
-  /// Get messages for a session/chat.
-  Future<List<MessageModel>> getMessages(String sessionId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _mockMessages;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  bool _matchesConversation(
+    Map<String, dynamic> data,
+    String userId1,
+    String userId2,
+  ) {
+    final senderId = data['senderId'] as String?;
+    final receiverId = data['receiverId'] as String?;
+    final participants = List<String>.from(data['participants'] ?? const []);
+
+    final matchesSenderReceiver =
+        (senderId == userId1 && receiverId == userId2) ||
+        (senderId == userId2 && receiverId == userId1);
+    final matchesParticipants =
+        participants.contains(userId1) && participants.contains(userId2);
+
+    return matchesSenderReceiver || matchesParticipants;
   }
 
-  /// Send a message.
-  /// Replace with: FirebaseFirestore.instance.collection('messages').add()
+  DateTime _timestampFromData(Map<String, dynamic> data) {
+    final timestamp = data['timestamp'];
+    if (timestamp is Timestamp) {
+      return timestamp.toDate();
+    }
+    if (timestamp is String) {
+      return DateTime.tryParse(timestamp) ?? DateTime.now();
+    }
+    return DateTime.now();
+  }
+
+  /// Get messages between two users in real-time.
+  Stream<List<MessageModel>> getConversationStream(
+      String userId1, String userId2) {
+    return _firestore
+        .collection('messages')
+        .snapshots()
+        .map((snapshot) {
+      final filtered = snapshot.docs
+          .where((doc) {
+            return _matchesConversation(doc.data(), userId1, userId2);
+          })
+          .toList();
+      
+      // Sort by timestamp
+      filtered.sort((a, b) {
+        final aTime = _timestampFromData(a.data());
+        final bTime = _timestampFromData(b.data());
+        return aTime.compareTo(bTime);
+      });
+      
+      final result = filtered
+          .map((doc) => MessageModel.fromJson({...doc.data(), 'id': doc.id}))
+          .toList();
+      return result;
+    });
+  }
+
+  /// Get messages between two users (one-time fetch).
+  Future<List<MessageModel>> getConversation(
+      String userId1, String userId2) async {
+    try {
+      final snapshot = await _firestore
+          .collection('messages')
+          .get();
+
+      final filtered = snapshot.docs
+          .where((doc) {
+            return _matchesConversation(doc.data(), userId1, userId2);
+          })
+          .toList();
+      
+      // Sort by timestamp
+      filtered.sort((a, b) {
+        final aTime = _timestampFromData(a.data());
+        final bTime = _timestampFromData(b.data());
+        return aTime.compareTo(bTime);
+      });
+
+      return filtered
+          .map((doc) => MessageModel.fromJson({...doc.data(), 'id': doc.id}))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Send a message to Firestore.
   Future<MessageModel> sendMessage(MessageModel message) async {
-    await Future.delayed(const Duration(milliseconds: 100));
-    return message;
+    try {
+      final docRef = await _firestore.collection('messages').add({
+        'senderId': message.senderId,
+        'senderName': message.senderName,
+        'receiverId': message.receiverId,
+        'content': message.content,
+        'type': message.type.name,
+        'attachmentUrl': message.attachmentUrl,
+        'timestamp': message.timestamp,
+        'sessionId': message.sessionId,
+        'participants': [message.senderId, message.receiverId],
+      });
+
+      return message.copyWith(id: docRef.id);
+    } catch (e) {
+      rethrow;
+    }
   }
 
   /// Send an attachment message.
-  /// Replace with: Firebase Storage upload + Firestore message document
   Future<MessageModel> sendAttachment({
     required String senderId,
     required String senderName,
     required String receiverId,
     required MessageType type,
     required String attachmentUrl,
+    required String sessionId,
     String content = '',
   }) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final message = MessageModel(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
-      senderId: senderId,
-      senderName: senderName,
-      receiverId: receiverId,
-      content: content.isEmpty ? type.name.toUpperCase() : content,
-      type: type,
-      attachmentUrl: attachmentUrl,
-      timestamp: DateTime.now(),
-    );
-    return message;
+    try {
+      final message = MessageModel(
+        id: '',
+        senderId: senderId,
+        senderName: senderName,
+        receiverId: receiverId,
+        content: content.isEmpty ? type.name.toUpperCase() : content,
+        type: type,
+        attachmentUrl: attachmentUrl,
+        timestamp: DateTime.now(),
+        sessionId: sessionId,
+      );
+
+      return await sendMessage(message);
+    } catch (e) {
+      rethrow;
+    }
   }
 
   /// Get chat previews (latest message per conversation).
+  Stream<List<ChatPreview>> getChatPreviewsStream(String userId) {
+    return _firestore
+        .collection('messages')
+        .snapshots()
+        .asyncMap((snapshot) async {
+      final Map<String, ChatPreview> previews = {};
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final senderId = data['senderId'] as String?;
+        final receiverId = data['receiverId'] as String?;
+
+        if (senderId == null || receiverId == null) continue;
+        if (senderId != userId && receiverId != userId) continue;
+
+        final partnerId = senderId == userId ? receiverId : senderId;
+        final sessionId = (data['sessionId'] as String?) ?? 'conversation_$partnerId';
+        final timestamp = _timestampFromData(data);
+
+        final existing = previews[partnerId];
+        if (existing != null && !timestamp.isAfter(existing.time)) {
+          continue;
+        }
+
+        try {
+          final userDoc = await _firestore.collection('users').doc(partnerId).get();
+          if (userDoc.exists) {
+            final userData = userDoc.data() as Map<String, dynamic>;
+            previews[partnerId] = ChatPreview(
+              sessionId: sessionId,
+              partnerId: partnerId,
+              partnerName: userData['name'] ?? 'Unknown',
+              partnerInitial: (userData['name'] ?? 'U').toString()[0],
+              lastMessage: data['content'] ?? '',
+              time: timestamp,
+              unreadCount: 0, // TODO: Implement unread count
+              isOnline: userData['isOnline'] ?? false,
+              skill: userData['skillsOffered']?[0] ?? 'General',
+            );
+          } else {
+            previews[partnerId] = ChatPreview(
+              sessionId: sessionId,
+              partnerId: partnerId,
+              partnerName: 'Unknown',
+              partnerInitial: 'U',
+              lastMessage: data['content'] ?? '',
+              time: timestamp,
+              unreadCount: 0,
+              isOnline: false,
+              skill: 'General',
+            );
+          }
+        } catch (_) {
+          previews[partnerId] = ChatPreview(
+            sessionId: sessionId,
+            partnerId: partnerId,
+            partnerName: 'Unknown',
+            partnerInitial: 'U',
+            lastMessage: data['content'] ?? '',
+            time: timestamp,
+            unreadCount: 0,
+            isOnline: false,
+            skill: 'General',
+          );
+        }
+      }
+
+      final result = previews.values.toList()
+        ..sort((a, b) => b.time.compareTo(a.time));
+      return result;
+    });
+  }
+
+  /// Get chat previews (one-time fetch).
   Future<List<ChatPreview>> getChatPreviews(String userId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return [
-      ChatPreview(
-        sessionId: 'sess_003',
-        partnerId: 'user_004',
-        partnerName: 'Rohan Mehta',
-        partnerInitial: 'R',
-        lastMessage: 'Ready for the Flutter session!',
-        time: DateTime.now().subtract(const Duration(minutes: 5)),
-        unreadCount: 2,
-        isOnline: true,
-        skill: 'Flutter',
-      ),
-      ChatPreview(
-        sessionId: 'sess_002',
-        partnerId: 'user_003',
-        partnerName: 'Priya Patel',
-        partnerInitial: 'P',
-        lastMessage: 'Thanks for the design tips! 🎨',
-        time: DateTime.now().subtract(const Duration(hours: 1)),
-        unreadCount: 0,
-        isOnline: true,
-        skill: 'UI/UX Design',
-      ),
-      ChatPreview(
-        sessionId: 'sess_001',
-        partnerId: 'user_002',
-        partnerName: 'Aarav Sharma',
-        partnerInitial: 'A',
-        lastMessage: 'Great session! Learned a lot about Flutter.',
-        time: DateTime.now().subtract(const Duration(days: 2)),
-        unreadCount: 0,
-        isOnline: false,
-        skill: 'Flutter',
-      ),
-    ];
+    try {
+      final snapshot = await _firestore
+          .collection('messages')
+          .get();
+
+      final Map<String, ChatPreview> previews = {};
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final senderId = data['senderId'] as String?;
+        final receiverId = data['receiverId'] as String?;
+
+        if (senderId == null || receiverId == null) continue;
+        if (senderId != userId && receiverId != userId) continue;
+
+        final partnerId = senderId == userId ? receiverId : senderId;
+        final sessionId = (data['sessionId'] as String?) ?? 'conversation_$partnerId';
+        final timestamp = _timestampFromData(data);
+
+        final existing = previews[partnerId];
+        if (existing != null && !timestamp.isAfter(existing.time)) {
+          continue;
+        }
+
+        try {
+          final userDoc = await _firestore.collection('users').doc(partnerId).get();
+          if (userDoc.exists) {
+            final userData = userDoc.data() as Map<String, dynamic>;
+            previews[partnerId] = ChatPreview(
+              sessionId: sessionId,
+              partnerId: partnerId,
+              partnerName: userData['name'] ?? 'Unknown',
+              partnerInitial: (userData['name'] ?? 'U').toString()[0],
+              lastMessage: data['content'] ?? '',
+              time: timestamp,
+              unreadCount: 0,
+              isOnline: userData['isOnline'] ?? false,
+              skill: userData['skillsOffered']?[0] ?? 'General',
+            );
+          } else {
+            previews[partnerId] = ChatPreview(
+              sessionId: sessionId,
+              partnerId: partnerId,
+              partnerName: 'Unknown',
+              partnerInitial: 'U',
+              lastMessage: data['content'] ?? '',
+              time: timestamp,
+              unreadCount: 0,
+              isOnline: false,
+              skill: 'General',
+            );
+          }
+        } catch (_) {
+          previews[partnerId] = ChatPreview(
+            sessionId: sessionId,
+            partnerId: partnerId,
+            partnerName: 'Unknown',
+            partnerInitial: 'U',
+            lastMessage: data['content'] ?? '',
+            time: timestamp,
+            unreadCount: 0,
+            isOnline: false,
+            skill: 'General',
+          );
+        }
+      }
+
+      final result = previews.values.toList()
+        ..sort((a, b) => b.time.compareTo(a.time));
+      return result;
+    } catch (e) {
+      return [];
+    }
   }
 }
 
@@ -103,62 +315,3 @@ class ChatPreview {
     required this.skill,
   });
 }
-
-final List<MessageModel> _mockMessages = [
-  MessageModel(
-    id: 'msg_1',
-    senderId: 'user_004',
-    senderName: 'Rohan',
-    receiverId: 'user_001',
-    content: 'Hey! Ready for the Flutter session today?',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 30)),
-  ),
-  MessageModel(
-    id: 'msg_2',
-    senderId: 'user_001',
-    senderName: 'Tanay',
-    receiverId: 'user_004',
-    content: 'Yes! I\'ve prepared a demo on state management.',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 28)),
-  ),
-  MessageModel(
-    id: 'msg_3',
-    senderId: 'user_004',
-    senderName: 'Rohan',
-    receiverId: 'user_001',
-    content: 'That sounds perfect. Can we cover Provider too?',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 25)),
-  ),
-  MessageModel(
-    id: 'msg_4',
-    senderId: 'user_001',
-    senderName: 'Tanay',
-    receiverId: 'user_004',
-    content: 'Absolutely! Provider is actually what I\'ll focus on.',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 22)),
-  ),
-  MessageModel(
-    id: 'msg_5',
-    senderId: 'user_004',
-    senderName: 'Rohan',
-    receiverId: 'user_001',
-    content: 'Great. Let me set up my environment.',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 15)),
-  ),
-  MessageModel(
-    id: 'msg_6',
-    senderId: 'user_001',
-    senderName: 'Tanay',
-    receiverId: 'user_004',
-    content: 'Take your time. I\'ll share my screen when you\'re ready.',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 10)),
-  ),
-  MessageModel(
-    id: 'msg_7',
-    senderId: 'user_004',
-    senderName: 'Rohan',
-    receiverId: 'user_001',
-    content: 'Ready! Let\'s start 💪',
-    timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
-  ),
-];

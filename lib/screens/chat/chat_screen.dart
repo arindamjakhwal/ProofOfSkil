@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/helpers.dart';
 import '../../models/message_model.dart';
-
+import '../../providers/auth_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../widgets/primary_button.dart';
@@ -19,13 +19,32 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  String? _partnerId;
+  String? _partnerName;
+  String? _activeConversationKey;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChatProvider>().loadMessages('sess_003');
+      // Get partner ID from navigation arguments
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      _partnerId = args?['partnerId'] as String?;
+      _partnerName = args?['partnerName'] as String?;
+
+      _startConversationListenerIfReady();
     });
+  }
+
+  void _startConversationListenerIfReady() {
+    final currentUser = context.read<AuthProvider>().user;
+    if (currentUser == null || _partnerId == null) return;
+
+    final conversationKey = '${currentUser.id}::$_partnerId';
+    if (_activeConversationKey == conversationKey) return;
+
+    _activeConversationKey = conversationKey;
+    context.read<ChatProvider>().listenToConversation(currentUser.id, _partnerId!);
   }
 
   @override
@@ -36,14 +55,19 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _sendMessage() {
+    final auth = context.read<AuthProvider>();
+    final user = auth.user;
+    if (user == null || _partnerId == null) return;
+
     final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
 
     context.read<ChatProvider>().sendMessage(
-          senderId: 'user_001',
-          senderName: 'Tanay',
-          receiverId: 'user_004',
+          senderId: user.id,
+          senderName: user.name,
+          receiverId: _partnerId!,
           content: text,
+          sessionId: 'conv_${user.id}_${_partnerId!}',
         );
     _msgCtrl.clear();
 
@@ -157,12 +181,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _sendAttachmentMock(MessageType type, String content) {
+    final auth = context.read<AuthProvider>();
+    final user = auth.user;
+    if (user == null || _partnerId == null) return;
+
     context.read<ChatProvider>().sendAttachment(
-          senderId: 'user_001',
-          senderName: 'Tanay',
-          receiverId: 'user_004',
+          senderId: user.id,
+          senderName: user.name,
+          receiverId: _partnerId!,
           type: type,
           attachmentUrl: 'mock://${type.name}_${DateTime.now().millisecondsSinceEpoch}',
+          sessionId: 'conv_${user.id}_${_partnerId!}',
           content: content,
         );
   }
@@ -335,6 +364,26 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final chat = context.watch<ChatProvider>();
     final session = context.watch<SessionProvider>();
+    final currentUser = context.watch<AuthProvider>().user;
+
+    if (currentUser != null && _partnerId != null) {
+      final conversationKey = '${currentUser.id}::$_partnerId';
+      if (_activeConversationKey != conversationKey) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final latestUser = context.read<AuthProvider>().user;
+          if (latestUser == null || _partnerId == null) return;
+
+          final latestConversationKey = '${latestUser.id}::$_partnerId';
+          if (_activeConversationKey == latestConversationKey) return;
+
+          _activeConversationKey = latestConversationKey;
+          context
+              .read<ChatProvider>()
+              .listenToConversation(latestUser.id, _partnerId!);
+        });
+      }
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -354,7 +403,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Stack(
                 children: [
                   AvatarWidget(
-                      name: 'Rohan Mehta',
+                      name: _partnerName ?? 'User',
                       size: 34,
                       backgroundColor: AppColors.primary),
                   // Online indicator
@@ -374,15 +423,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
               const SizedBox(width: 12),
-              const Column(
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Rohan Mehta',
-                      style: TextStyle(
+                  Text(_partnerName ?? 'User',
+                      style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: AppColors.textPrimary)),
-                  Text('Online',
+                  const Text('Online',
                       style:
                           TextStyle(fontSize: 12, color: AppColors.success)),
                 ],
@@ -418,7 +467,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemCount: chat.messages.length,
                     itemBuilder: (_, i) {
                       final msg = chat.messages[i];
-                      final isMe = msg.senderId == 'user_001';
+                      final currentUser = context.read<AuthProvider>().user;
+                      final isMe = currentUser != null && msg.senderId == currentUser.id;
                       return _Bubble(msg: msg, isMe: isMe);
                     },
                   ),

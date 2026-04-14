@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "431131903995",
+    "project_id": "proofofskil",
+    "storage_bucket": "proofofskil.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:431131903995:android:0e6ae0cc80e84536d32d5e",
+        "android_client_info": {
+          "package_name": "com.brainforge.brainforge"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "431131903995-2io4u2j7apmdrtr5mmpd23gcch797dn0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.brainforge.brainforge",
+            "certificate_hash": "09f3cba910d97b16e6737674a6165750297ef908"
+          }
+        },
+        {
+          "client_id": "431131903995-lgeo7j8hiue1ek7hc648ug38hut14g66.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBB-7Um6iVyhheJ0pIVDNLVguSaGidotSE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "431131903995-lgeo7j8hiue1ek7hc648ug38hut14g66.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "431131903995-q4ajfuim2ofq72tfukvjmsol14d9kj7d.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.brainforge.brainforge"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
