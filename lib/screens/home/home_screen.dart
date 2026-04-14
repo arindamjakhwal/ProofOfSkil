@@ -814,7 +814,7 @@ class _MapPreviewSectionState extends State<_MapPreviewSection>
         const SizedBox(height: 14),
         // Nearby users horizontal list
         SizedBox(
-          height: 68,
+          height: 84,
           child: _isLoading
               ? const SizedBox.shrink()
               : ListView.separated(
@@ -1003,7 +1003,7 @@ class _NearbyUserChip extends StatelessWidget {
       onTap: onTap,
       child: Container(
         width: 100,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
@@ -1017,7 +1017,7 @@ class _NearbyUserChip extends StatelessWidget {
               children: [
                 AvatarWidget(
                     name: name,
-                    size: 28,
+                    size: 26,
                     backgroundColor: AppColors.primary),
                 if (isOnline)
                   Positioned(
@@ -1036,7 +1036,7 @@ class _NearbyUserChip extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               name.split(' ').first,
               style: const TextStyle(
