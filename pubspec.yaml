@@ -1,0 +1,29 @@
+name: proof_of_skill
+description: "ProofOfSkill — Blockchain-based Skill Exchange Platform"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.1.0
+  provider: ^6.1.2
+  fl_chart: ^0.70.0
+  flutter_card_swiper: ^7.0.0
+  smooth_page_indicator: ^1.1.0
+  percent_indicator: ^4.2.3
+  flutter_staggered_animations: ^1.1.1
+  intl: ^0.19.0
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
