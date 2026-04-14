@@ -21,6 +21,7 @@
 | <img src="docs/screenshots/feed.png" width="200" alt="Feed Screen"/> | <img src="docs/screenshots/map.png" width="200" alt="Map Screen"/> | <img src="docs/screenshots/timer.png" width="200" alt="Timer Screen"/> | <img src="docs/screenshots/nft.png" width="200" alt="NFT Screen"/> |
 
 *Experience a distraction-free, synchronized learning environment.*
+<img width="720" height="1600" alt="image" src="https://github.com/user-attachments/assets/1bdf5004-a292-4fda-aee0-34c3ebdab11d" />
 
 ---
 
