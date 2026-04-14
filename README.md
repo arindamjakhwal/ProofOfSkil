@@ -14,14 +14,19 @@
 
 ## 📸 App Preview
 
-> *(Add your screenshots below. Replace the `src` with your actual image paths from your repository)*
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/1d71abff-27a2-49ee-8fb7-8b30dbfd6ec1" />
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/97349e49-5471-4cb5-83b1-f1997ed76ade" />
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/eea26ba5-3511-4735-800a-3d5f8fec59cc" />
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/8dbdd215-9917-4af9-8d0d-521a2ace67a5" />
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/a646e290-10a1-48dc-981c-6e80d2a6bffe" />
+<img width="200" height="400" alt="image" src="https://github.com/user-attachments/assets/184e9710-cab9-4079-bea5-a90687edb4a9" />
 
-| Dashboard / Feed | Matchmaking Map | Deep Focus Timer | Proof of Skill NFT |
-|:---:|:---:|:---:|:---:|
-| <img src="docs/screenshots/feed.png" width="200" alt="Feed Screen"/> | <img src="docs/screenshots/map.png" width="200" alt="Map Screen"/> | <img src="docs/screenshots/timer.png" width="200" alt="Timer Screen"/> | <img src="docs/screenshots/nft.png" width="200" alt="NFT Screen"/> |
+
+
+
 
 *Experience a distraction-free, synchronized learning environment.*
-<img width="720" height="1600" alt="image" src="https://github.com/user-attachments/assets/1bdf5004-a292-4fda-aee0-34c3ebdab11d" />
+
 
 ---
 
