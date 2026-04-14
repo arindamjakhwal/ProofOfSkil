@@ -1,7 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../models/user_model.dart';
 
 /// User profile service — replace with Firestore reads/writes.
 class UserService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   /// Fetch user profile by ID.
   /// Replace with: FirebaseFirestore.instance.collection('users').doc(id).get()
   Future<UserModel> getUser(String id) async {
@@ -44,19 +48,55 @@ class UserService {
     // In production: update Firestore and Firebase Presence
   }
 
-  /// Get users for matchmaking (users whose wants match our offers).
-  /// Replace with: Firestore query with arrayContainsAny
+  /// Get users for matchmaking.
+  /// Returns all users from Firestore except the current user.
   Future<List<UserModel>> getMatchCandidates(UserModel currentUser) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return _mockUsers
-        .where((u) => u.id != currentUser.id)
-        .where((u) {
-          // Check skill compatibility: their wants ∩ our offers
-          final theirWants = u.skillsWanted.toSet();
-          final ourOffers = currentUser.skillsOffered.toSet();
-          return theirWants.intersection(ourOffers).isNotEmpty;
-        })
-        .toList();
+    try {
+      final snapshot = await _firestore.collection('users').get();
+      final users = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final resolvedId =
+            ((data['uid'] ?? data['id'] ?? doc.id) as Object).toString();
+        final createdAtValue = data['createdAt'];
+
+        DateTime createdAt = DateTime.now();
+        if (createdAtValue is Timestamp) {
+          createdAt = createdAtValue.toDate();
+        } else if (createdAtValue is String) {
+          createdAt = DateTime.tryParse(createdAtValue) ?? DateTime.now();
+        } else if (createdAtValue is DateTime) {
+          createdAt = createdAtValue;
+        }
+
+        return UserModel(
+          id: resolvedId,
+          name: (data['name'] ?? 'Unknown User').toString(),
+          email: (data['email'] ?? '').toString(),
+          bio: data['bio']?.toString(),
+          skillsOffered: List<String>.from(data['skillsOffered'] ?? const []),
+          skillsWanted: List<String>.from(data['skillsWanted'] ?? const []),
+          rating: (data['rating'] as num?)?.toDouble() ?? 0.0,
+          totalRatings: (data['totalRatings'] as num?)?.toInt() ?? 0,
+          points: (data['points'] as num?)?.toInt() ?? 200,
+          sessionsCompleted: (data['sessionsCompleted'] as num?)?.toInt() ?? 0,
+          skillsLearned: (data['skillsLearned'] as num?)?.toInt() ?? 0,
+          deepFocusScore: (data['deepFocusScore'] as num?)?.toDouble() ?? 0.0,
+          totalHoursSpent: (data['totalHoursSpent'] as num?)?.toDouble() ?? 0.0,
+          walletAddress: data['walletAddress']?.toString(),
+          isOnline: data['isOnline'] == true,
+          createdAt: createdAt,
+        );
+      }).where((u) => u.id != currentUser.id).toList();
+
+      if (users.isNotEmpty) {
+        return users;
+      }
+    } catch (_) {
+      // Fall back to local mock users if Firestore is unavailable.
+    }
+
+    await Future.delayed(const Duration(milliseconds: 300));
+    return _mockUsers.where((u) => u.id != currentUser.id).toList();
   }
 
   /// Get available teachers for a specific skill.
