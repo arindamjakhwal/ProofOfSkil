@@ -91,15 +91,73 @@ class ChatListScreen extends StatelessWidget {
                             const Divider(height: 1, color: AppColors.divider),
                         itemBuilder: (context, i) {
                           final chat = chats[i];
-                          return _ChatTile(
-                            chat: chat,
-                            onTap: () {
-                              Navigator.pushNamed(context, '/chat',
-                                  arguments: {
-                                    'partnerId': chat.partnerId,
-                                    'partnerName': chat.partnerName
-                                  });
+                          return Dismissible(
+                            key: ValueKey('chat_${chat.partnerId}'),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                color: AppColors.error.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.delete_rounded,
+                                color: AppColors.error,
+                              ),
+                            ),
+                            confirmDismiss: (_) async {
+                              final shouldDelete = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete conversation?'),
+                                  content: Text(
+                                    'This will permanently remove your chat with ${chat.partnerName}.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.error,
+                                      ),
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              if (shouldDelete == true) {
+                                await chatService.deleteConversation(
+                                  currentUser.id,
+                                  chat.partnerId,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Conversation with ${chat.partnerName} deleted',
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return true;
+                              }
+                              return false;
                             },
+                            child: _ChatTile(
+                              chat: chat,
+                              onTap: () {
+                                Navigator.pushNamed(context, '/chat',
+                                    arguments: {
+                                      'partnerId': chat.partnerId,
+                                      'partnerName': chat.partnerName
+                                    });
+                              },
+                            ),
                           );
                         },
                       );

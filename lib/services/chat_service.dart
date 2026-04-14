@@ -90,6 +90,31 @@ class ChatService {
     }
   }
 
+  /// Delete all messages between two users.
+  Future<void> deleteConversation(String userId1, String userId2) async {
+    final snapshot = await _firestore.collection('messages').get();
+
+    final docsToDelete = snapshot.docs.where((doc) {
+      return _matchesConversation(doc.data(), userId1, userId2);
+    }).toList();
+
+    if (docsToDelete.isEmpty) return;
+
+    const batchSize = 400;
+    for (var start = 0; start < docsToDelete.length; start += batchSize) {
+      final end = (start + batchSize < docsToDelete.length)
+          ? start + batchSize
+          : docsToDelete.length;
+      final chunk = docsToDelete.sublist(start, end);
+
+      final batch = _firestore.batch();
+      for (final doc in chunk) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
+  }
+
   /// Send a message to Firestore.
   Future<MessageModel> sendMessage(MessageModel message) async {
     try {
