@@ -199,7 +199,7 @@ flutter run
 ---
 
 ## 👥 Team
-- **[Your Name / Team Logo]** - Built with ❤️ for open knowledge exchange.
+- **Tanay Prasad, Laksh Dhingra, Arindam Jakhwal** - Built by Tech Team MOBiLON.
 
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
