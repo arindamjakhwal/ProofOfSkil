@@ -1,8 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/helpers.dart';
 import '../../models/learning_space_model.dart';
+import '../../models/user_location.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/location_service.dart';
 import '../../widgets/avatar_widget.dart';
 
@@ -21,6 +24,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   double _radius = 10.0;
   bool _showUsers = true;
   bool _showSpaces = true;
+  UserLocation _currentLocation = const UserLocation(
+    latitude: 28.6139,
+    longitude: 77.2090,
+  );
 
   // Map interaction state
   Offset _panOffset = Offset.zero;
@@ -30,6 +37,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
+  late AnimationController _entryCtrl;
+  late Animation<double> _entryAnim;
 
   @override
   void initState() {
@@ -41,26 +50,63 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _pulseAnim = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
+    _entryCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _entryAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
+    _entryCtrl.forward();
     _loadData();
   }
 
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _entryCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _loadData() async {
+    final currentUserId = context.read<AuthProvider>().user?.id ?? 'guest';
+    final location = await _locationService.getCurrentLocation();
     final users = await _locationService.getNearbyUsers(
-      currentUserId: 'user_001',
+      currentUserId: currentUserId,
       radiusKm: _radius,
+      origin: location,
     );
-    final spaces = await _locationService.getNearbySpaces(radiusKm: _radius);
+    final spaces = await _locationService.getNearbySpaces(
+      radiusKm: _radius,
+      origin: location,
+    );
+    if (!mounted) return;
     setState(() {
+      _currentLocation = location;
       _nearbyUsers = users;
       _spaces = spaces;
       _isLoading = false;
     });
+  }
+
+  double _kmPerLonAtLat(double latitude) {
+    final value = 111.320 * cos(latitude * pi / 180.0).abs();
+    return value < 10 ? 10 : value;
+  }
+
+  Offset _projectPosition({
+    required double latitude,
+    required double longitude,
+    required Size size,
+  }) {
+    final cx = size.width / 2 + _panOffset.dx;
+    final cy = size.height / 2 + _panOffset.dy - 60;
+
+    final kmPerLat = 111.0;
+    final kmPerLon = _kmPerLonAtLat(_currentLocation.latitude);
+    final dxKm = (longitude - _currentLocation.longitude) * kmPerLon;
+    final dyKm = (_currentLocation.latitude - latitude) * kmPerLat;
+    final pxPerKm = (18.0 * _scale).clamp(10.0, 36.0);
+
+    return Offset(cx + dxKm * pxPerKm, cy + dyKm * pxPerKm);
   }
 
   void _showUserProfile(NearbyUser nearby) {
@@ -144,18 +190,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     });
                   },
                   child: AnimatedBuilder(
-                    animation: _pulseAnim,
+                    animation: Listenable.merge([_pulseAnim, _entryAnim]),
                     builder: (_, child2) {
-                      return CustomPaint(
-                        size: Size.infinite,
-                        painter: _MapPainter(
-                          users: _showUsers ? _nearbyUsers : [],
-                          spaces: _showSpaces ? _spaces : [],
-                          panOffset: _panOffset,
-                          scale: _scale,
-                          pulseValue: _pulseAnim.value,
-                          selectedUserIdx: _selectedUserIdx,
-                          selectedSpaceIdx: _selectedSpaceIdx,
+                      return Opacity(
+                        opacity: _entryAnim.value,
+                        child: Transform.scale(
+                          scale: 0.96 + (_entryAnim.value * 0.04),
+                          child: CustomPaint(
+                            size: Size.infinite,
+                            painter: _MapPainter(
+                              users: _showUsers ? _nearbyUsers : [],
+                              spaces: _showSpaces ? _spaces : [],
+                              currentLocation: _currentLocation,
+                              panOffset: _panOffset,
+                              scale: _scale,
+                              pulseValue: _pulseAnim.value,
+                              selectedUserIdx: _selectedUserIdx,
+                              selectedSpaceIdx: _selectedSpaceIdx,
+                            ),
+                          ),
                         ),
                       );
                     },
@@ -184,17 +237,18 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   List<Widget> _buildTapTargets(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final cx = size.width / 2 + _panOffset.dx;
-    final cy = size.height / 2 + _panOffset.dy - 60;
     final targets = <Widget>[];
 
     if (_showUsers) {
       for (int i = 0; i < _nearbyUsers.length; i++) {
         final u = _nearbyUsers[i];
-        final angle = (i * 2 * pi / _nearbyUsers.length) - pi / 2;
-        final dist = (50 + u.distanceKm * 40) * _scale;
-        final x = cx + cos(angle) * dist - 18;
-        final y = cy + sin(angle) * dist - 18;
+        final position = _projectPosition(
+          latitude: u.location.latitude,
+          longitude: u.location.longitude,
+          size: size,
+        );
+        final x = position.dx - 18;
+        final y = position.dy - 18;
 
         targets.add(Positioned(
           left: x,
@@ -213,11 +267,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_showSpaces) {
       for (int i = 0; i < _spaces.length; i++) {
         final s = _spaces[i];
-        final angle = (i * 2 * pi / _spaces.length) +
-            pi / _spaces.length;
-        final dist = (90 + i * 25) * _scale;
-        final x = cx + cos(angle) * dist - 16;
-        final y = cy + sin(angle) * dist - 16;
+        final position = _projectPosition(
+          latitude: s.latitude,
+          longitude: s.longitude,
+          size: size,
+        );
+        final x = position.dx - 16;
+        final y = position.dy - 16;
 
         targets.add(Positioned(
           left: x,
@@ -251,7 +307,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               color: AppColors.primary, size: 16),
           const SizedBox(width: 6),
           Text(
-            'New Delhi',
+            'Lat ${_currentLocation.latitude.toStringAsFixed(3)} · Lng ${_currentLocation.longitude.toStringAsFixed(3)}',
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -359,6 +415,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 class _MapPainter extends CustomPainter {
   final List<NearbyUser> users;
   final List<LearningSpaceModel> spaces;
+  final UserLocation currentLocation;
   final Offset panOffset;
   final double scale;
   final double pulseValue;
@@ -368,12 +425,32 @@ class _MapPainter extends CustomPainter {
   _MapPainter({
     required this.users,
     required this.spaces,
+    required this.currentLocation,
     required this.panOffset,
     required this.scale,
     required this.pulseValue,
     this.selectedUserIdx,
     this.selectedSpaceIdx,
   });
+
+  double _kmPerLonAtLat(double latitude) {
+    final value = 111.320 * cos(latitude * pi / 180.0).abs();
+    return value < 10 ? 10 : value;
+  }
+
+  Offset _projectPosition({
+    required double latitude,
+    required double longitude,
+    required double cx,
+    required double cy,
+  }) {
+    final kmPerLat = 111.0;
+    final kmPerLon = _kmPerLonAtLat(currentLocation.latitude);
+    final dxKm = (longitude - currentLocation.longitude) * kmPerLon;
+    final dyKm = (currentLocation.latitude - latitude) * kmPerLat;
+    final pxPerKm = (18.0 * scale).clamp(10.0, 36.0);
+    return Offset(cx + dxKm * pxPerKm, cy + dyKm * pxPerKm);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -452,10 +529,14 @@ class _MapPainter extends CustomPainter {
     // Learning space markers
     for (int i = 0; i < spaces.length; i++) {
       final s = spaces[i];
-      final angle = (i * 2 * pi / spaces.length) + pi / spaces.length;
-      final dist = (90 + i * 25) * scale;
-      final x = cx + cos(angle) * dist;
-      final y = cy + sin(angle) * dist;
+      final projected = _projectPosition(
+        latitude: s.latitude,
+        longitude: s.longitude,
+        cx: cx,
+        cy: cy,
+      );
+      final x = projected.dx;
+      final y = projected.dy;
       final isSelected = selectedSpaceIdx == i;
 
       // Shadow
@@ -497,10 +578,14 @@ class _MapPainter extends CustomPainter {
     // User markers (circular avatar-style)
     for (int i = 0; i < users.length; i++) {
       final u = users[i];
-      final angle = (i * 2 * pi / users.length) - pi / 2;
-      final dist = (50 + u.distanceKm * 40) * scale;
-      final x = cx + cos(angle) * dist;
-      final y = cy + sin(angle) * dist;
+      final projected = _projectPosition(
+        latitude: u.location.latitude,
+        longitude: u.location.longitude,
+        cx: cx,
+        cy: cy,
+      );
+      final x = projected.dx;
+      final y = projected.dy;
       final isSelected = selectedUserIdx == i;
       final isOnline = u.user.isOnline;
 

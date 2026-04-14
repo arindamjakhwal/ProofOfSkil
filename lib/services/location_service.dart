@@ -1,3 +1,5 @@
+import 'package:geolocator/geolocator.dart';
+
 import '../models/user_model.dart';
 import '../models/user_location.dart';
 import '../models/learning_space_model.dart';
@@ -13,8 +15,30 @@ class LocationService {
   /// Get the current user's location.
   /// Replace with: Geolocator.getCurrentPosition()
   Future<UserLocation> getCurrentLocation() async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    return _currentLocation;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return _currentLocation;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return _currentLocation;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      return UserLocation(latitude: pos.latitude, longitude: pos.longitude);
+    } catch (_) {
+      return _currentLocation;
+    }
   }
 
   /// Get nearby users within a radius (km).
@@ -22,12 +46,19 @@ class LocationService {
   Future<List<NearbyUser>> getNearbyUsers({
     required String currentUserId,
     double radiusKm = 10.0,
+    UserLocation? origin,
   }) async {
     await Future.delayed(const Duration(milliseconds: 400));
+    final center = origin ?? await getCurrentLocation();
+
     return _mockNearbyUsers
         .where((u) => u.user.id != currentUserId)
-        .where((u) =>
-            _currentLocation.distanceTo(u.location) <= radiusKm)
+        .map((u) => NearbyUser(
+              user: u.user,
+              location: u.location,
+              distanceKm: double.parse(center.distanceTo(u.location).toStringAsFixed(1)),
+            ))
+        .where((u) => center.distanceTo(u.location) <= radiusKm)
         .toList();
   }
 
@@ -35,9 +66,18 @@ class LocationService {
   /// Replace with: Firestore collection 'learningSpaces' or Google Places API
   Future<List<LearningSpaceModel>> getNearbySpaces({
     double radiusKm = 10.0,
+    UserLocation? origin,
   }) async {
     await Future.delayed(const Duration(milliseconds: 300));
-    return _mockSpaces;
+    final center = origin ?? await getCurrentLocation();
+
+    return _mockSpaces.where((space) {
+      final spaceLoc = UserLocation(
+        latitude: space.latitude,
+        longitude: space.longitude,
+      );
+      return center.distanceTo(spaceLoc) <= radiusKm;
+    }).toList();
   }
 }
 

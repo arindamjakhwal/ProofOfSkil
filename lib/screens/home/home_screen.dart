@@ -717,11 +717,14 @@ class _MapPreviewSectionState extends State<_MapPreviewSection>
   }
 
   Future<void> _loadData() async {
+    final currentUserId = context.read<AuthProvider>().user?.id ?? 'guest';
+    final origin = await _locationService.getCurrentLocation();
     final users = await _locationService.getNearbyUsers(
-      currentUserId: 'user_001',
+      currentUserId: currentUserId,
       radiusKm: 10,
+      origin: origin,
     );
-    final spaces = await _locationService.getNearbySpaces();
+    final spaces = await _locationService.getNearbySpaces(origin: origin);
     if (mounted) {
       setState(() {
         _nearbyUsers = users;
