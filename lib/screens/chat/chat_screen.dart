@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/calendar/v3.dart' as calendar;
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/helpers.dart';
 import '../../models/message_model.dart';
@@ -196,6 +200,127 @@ class _ChatScreenState extends State<ChatScreen> {
         );
   }
 
+  Future<Uri> _createGoogleMeetLink() async {
+    final googleSignIn = GoogleSignIn(
+      scopes: [
+        calendar.CalendarApi.calendarScope,
+        calendar.CalendarApi.calendarEventsScope,
+      ],
+    );
+
+    GoogleSignInAccount? account = await googleSignIn.signInSilently();
+    account ??= await googleSignIn.signIn();
+    if (account == null) {
+      throw Exception('Google sign-in was cancelled.');
+    }
+
+    final granted = await googleSignIn.requestScopes([
+      calendar.CalendarApi.calendarScope,
+      calendar.CalendarApi.calendarEventsScope,
+    ]);
+
+    if (!granted) {
+      throw Exception('Google Calendar permission was not granted.');
+    }
+
+    final headers = await account.authHeaders;
+    if (!headers.containsKey('Authorization')) {
+      throw Exception('Missing Google authorization token.');
+    }
+
+    final authClient = _GoogleAuthClient(headers);
+    final calendarApi = calendar.CalendarApi(authClient);
+
+    final now = DateTime.now().toUtc();
+    final event = calendar.Event(
+      summary: 'ProofOfSkil Video Call',
+      description: 'Auto-created from chat',
+      start: calendar.EventDateTime(dateTime: now),
+      end: calendar.EventDateTime(dateTime: now.add(const Duration(hours: 1))),
+      conferenceData: calendar.ConferenceData(
+        createRequest: calendar.CreateConferenceRequest(
+          requestId: 'proof_call_${DateTime.now().millisecondsSinceEpoch}',
+          conferenceSolutionKey:
+              calendar.ConferenceSolutionKey(type: 'hangoutsMeet'),
+        ),
+      ),
+    );
+
+    final created = await calendarApi.events.insert(
+      event,
+      'primary',
+      conferenceDataVersion: 1,
+      sendUpdates: 'none',
+    );
+
+    final hangoutLink = created.hangoutLink;
+    if (hangoutLink != null && hangoutLink.isNotEmpty) {
+      return Uri.parse(hangoutLink);
+    }
+
+    final entryPoints = created.conferenceData?.entryPoints ?? const [];
+    final videoEntry = entryPoints.cast<calendar.EntryPoint?>().firstWhere(
+          (entry) => entry?.entryPointType == 'video' &&
+              (entry?.uri?.isNotEmpty ?? false),
+          orElse: () => null,
+        );
+
+    final uri = videoEntry?.uri;
+    if (uri != null && uri.isNotEmpty) {
+      return Uri.parse(uri);
+    }
+
+    throw Exception(
+      'Google Meet link was not returned. Enable Google Calendar API in your Google Cloud project and try again.',
+    );
+  }
+
+  Future<void> _startVideoCall() async {
+    final user = context.read<AuthProvider>().user;
+    final chatProvider = context.read<ChatProvider>();
+    if (user == null || _partnerId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start call right now.')),
+      );
+      return;
+    }
+
+    Uri callUri;
+    try {
+      callUri = await _createGoogleMeetLink();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not create Google Meet link: ${error.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await chatProvider.sendMessage(
+      senderId: user.id,
+      senderName: user.name,
+      receiverId: _partnerId!,
+      content: '📹 Join video call: ${callUri.toString()}',
+      sessionId: 'conv_${user.id}_${_partnerId!}',
+    );
+
+    final launched = await launchUrl(
+      callUri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open video call. Please try again.')),
+      );
+    }
+  }
+
   void _showVideoCallDialog() {
     showDialog(
       context: context,
@@ -227,19 +352,37 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Video calls will be available soon!\nStay tuned for real-time screen sharing and live collaboration.',
+              Text(
+                _partnerName == null
+                  ? 'Start a Google Meet call and send a join link in chat automatically.'
+                  : 'Start a Google Meet call with $_partnerName and auto-send the join link.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
                     height: 1.4),
               ),
               const SizedBox(height: 20),
-              PrimaryButton(
-                text: 'Got it',
-                isOutlined: true,
-                onPressed: () => Navigator.pop(ctx),
+              Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      text: 'Cancel',
+                      isOutlined: true,
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: PrimaryButton(
+                      text: 'Start Call',
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        await _startVideoCall();
+                      },
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -784,9 +927,17 @@ class _Bubble extends StatelessWidget {
 
   const _Bubble({required this.msg, required this.isMe});
 
+  static final RegExp _urlRegExp = RegExp(r'https?://[^\s]+');
+
+  String? _extractFirstUrl(String value) {
+    final match = _urlRegExp.firstMatch(value);
+    return match?.group(0);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAttachment = msg.type != MessageType.text;
+    final link = _extractFirstUrl(msg.content);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -858,14 +1009,66 @@ class _Bubble extends StatelessWidget {
                     ),
                   ),
                 ],
-                Text(
-                  msg.content,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : AppColors.textPrimary,
-                    fontSize: 14,
-                    height: 1.4,
+                if (link == null)
+                  Text(
+                    msg.content,
+                    style: TextStyle(
+                      color: isMe ? Colors.white : AppColors.textPrimary,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  )
+                else ...[
+                  Text(
+                    msg.content.replaceFirst(link, '').trim(),
+                    style: TextStyle(
+                      color: isMe ? Colors.white : AppColors.textPrimary,
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: () async {
+                      final uri = Uri.tryParse(link);
+                      if (uri == null) return;
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isMe
+                            ? Colors.white.withValues(alpha: 0.2)
+                            : AppColors.background,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isMe
+                              ? Colors.white.withValues(alpha: 0.35)
+                              : AppColors.border,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.videocam_rounded,
+                            size: 16,
+                            color: isMe ? Colors.white : AppColors.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Join Call',
+                            style: TextStyle(
+                              color: isMe ? Colors.white : AppColors.primary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Align(
                   alignment: Alignment.bottomRight,
@@ -909,5 +1112,24 @@ class _Bubble extends StatelessWidget {
       default:
         return Icons.attach_file_rounded;
     }
+  }
+}
+
+class _GoogleAuthClient extends http.BaseClient {
+  final Map<String, String> _headers;
+  final http.Client _inner = http.Client();
+
+  _GoogleAuthClient(this._headers);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.headers.addAll(_headers);
+    return _inner.send(request);
+  }
+
+  @override
+  void close() {
+    _inner.close();
+    super.close();
   }
 }
